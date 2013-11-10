@@ -27,8 +27,8 @@ import java.util.concurrent.*;
  * Thread-Safety is enforced by only implementing the safe methods of blocking queues. see http://docs.oracle.com/javase/7/docs/api/java/util/concurrent/BlockingQueue.html
  *
  * @param <T> The type of element to be stored in the queue
- *
- * User: gmelo.org
+ *            <p/>
+ *            User: gmelo.org
  */
 
 public class LinkedBlockingQueueWithAck<T> implements BlockingQueueWithAck<T> {
@@ -46,7 +46,7 @@ public class LinkedBlockingQueueWithAck<T> implements BlockingQueueWithAck<T> {
     //Map storing the number of times a object was re-queued
     private final Map<T, Integer> countOfElements = new HashMap<T, Integer>();
     //queue that stores objects that were re-queued more than the limit
-    private final Queue<T> poisonElements;
+    private final Queue<T> deadLetterQueue;
     //the maximum number of times a element can be re-queued
     private final int requeueLimit;
 
@@ -54,21 +54,21 @@ public class LinkedBlockingQueueWithAck<T> implements BlockingQueueWithAck<T> {
      * Creates a new LinkedBlockingQueueWithAck with a timeout before unacknowledged objects
      * of waitBeforeAck and a capacity of queueSize
      *
-     * @param waitBeforeAck  the timeout before elements are re-queued in milliseconds
-     * @param queueSize      the maximum capacity of the queue
-     * @param maximumRetries the maximum number of times a element can be requeued before giving up
-     * @param poisonElements queue to push the poisoned elements to
+     * @param waitBeforeAck   the timeout before elements are re-queued in milliseconds
+     * @param queueSize       the maximum capacity of the queue
+     * @param maximumRetries  the maximum number of times a element can be requeued before giving up
+     * @param deadLetterQueue queue to push the poisoned elements to
      */
-    public LinkedBlockingQueueWithAck(long waitBeforeAck, int queueSize, int maximumRetries, Queue<T> poisonElements) {
+    public LinkedBlockingQueueWithAck(long waitBeforeAck, int queueSize, int maximumRetries, Queue<T> deadLetterQueue) {
         this.waitBeforeAck = waitBeforeAck;
         internalQueue = new LinkedBlockingQueue<T>(queueSize);
         requeueLimit = maximumRetries;
-        if (poisonElements != null) {
-            this.poisonElements = poisonElements;
+        if (deadLetterQueue != null) {
+            this.deadLetterQueue = deadLetterQueue;
 
         } else {
             logger.warn("Poison element queue should not be null");
-            this.poisonElements = new LinkedBlockingQueue<T>();
+            this.deadLetterQueue = new LinkedBlockingQueue<T>();
         }
         startExpiryListener();
     }
@@ -101,6 +101,15 @@ public class LinkedBlockingQueueWithAck<T> implements BlockingQueueWithAck<T> {
     }
 
     /**
+     * Adds element to dead letter queue and cleans up the countOfElements map.
+     */
+    private void addElementToDeadLetterQueue(T element) {
+        logger.debug("adding element {} to dead letter queue");
+        deadLetterQueue.add(element);
+        countOfElements.remove(element);
+    }
+
+    /**
      * {@inheritDoc}
      */
     @Override
@@ -110,7 +119,12 @@ public class LinkedBlockingQueueWithAck<T> implements BlockingQueueWithAck<T> {
         waitingForAck.remove(new ExpiryWrapper<T>(element, waitBeforeAck));
 
         if (acknowledgement == Acknowledgement.NACK) {
-            internalQueue.add(element);
+
+            if (checkForValidElement(element)) {
+                internalQueue.add(element);
+            } else {
+                addElementToDeadLetterQueue(element);
+            }
         }
     }
 
@@ -120,7 +134,7 @@ public class LinkedBlockingQueueWithAck<T> implements BlockingQueueWithAck<T> {
      * @return Queue with the elements that were re-queued over the
      */
     public Queue<T> poisonedElements() {
-        return poisonElements;
+        return deadLetterQueue;
     }
 
     /**
@@ -216,8 +230,10 @@ public class LinkedBlockingQueueWithAck<T> implements BlockingQueueWithAck<T> {
     @Override
     public T poll(long l, TimeUnit timeUnit) throws InterruptedException {
         T entity = internalQueue.poll(l, timeUnit);
-        if (entity != null)
+        if (entity != null) {
             return waitForAck(entity);
+        }
+
         return null;
     }
 
@@ -256,7 +272,7 @@ public class LinkedBlockingQueueWithAck<T> implements BlockingQueueWithAck<T> {
      */
 
     @Override
-    public boolean addAll( Collection<? extends T> ts) {
+    public boolean addAll(Collection<? extends T> ts) {
         throw new UnsupportedOperationException("Add All Operation is not allowed");
 
     }
@@ -488,7 +504,7 @@ public class LinkedBlockingQueueWithAck<T> implements BlockingQueueWithAck<T> {
                     if (checkForValidElement(element)) {
                         internalQueue.add(element);
                     } else {
-                        poisonElements.add(element);
+                        addElementToDeadLetterQueue(element);
                     }
 
                     logger.debug("re-queuing object {}", wrappedElement);
