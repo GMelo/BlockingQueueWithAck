@@ -22,7 +22,7 @@ import java.util.concurrent.*;
  * The capacity, if unspecified, is equal to Integer.MAX_VALUE. Linked nodes are dynamically created upon
  * each insertion unless this would bring the queue above capacity.
  * <p/>
- * This Queue is Backed by an http://docs.oracle.com/javase/7/docs/api/java/util/concurrent/LinkedBlockingQueue.html
+ * This Queue is Backed by an link#http://docs.oracle.com/javase/7/docs/api/java/util/concurrent/LinkedBlockingQueue.html
  * <p/>
  * Thread-Safety is enforced by only implementing the safe methods of blocking queues. see http://docs.oracle.com/javase/7/docs/api/java/util/concurrent/BlockingQueue.html
  *
@@ -91,6 +91,16 @@ public class LinkedBlockingQueueWithAck<T> implements BlockingQueueWithAck<T> {
      */
     public LinkedBlockingQueueWithAck(long waitBeforeAck, int maximumRequeue) {
         this(waitBeforeAck, Integer.MAX_VALUE, maximumRequeue, new LinkedBlockingQueue<T>());
+    }
+
+    /**
+     * Creates a new LinkedBlockingQueueWithAck with a timeout before unacknowledged objects
+     * of waitBeforeAck, with the provided dead letter queue and a capacity of Integer.MAX_VALUE
+     *
+     * @param waitBeforeAck the timeout before elements are re-queued in milliseconds
+     */
+    public LinkedBlockingQueueWithAck(long waitBeforeAck, int maximumRequeue,BlockingQueue<T> deadLetterQ) {
+        this(waitBeforeAck, Integer.MAX_VALUE, maximumRequeue, deadLetterQ);
     }
 
     /**
