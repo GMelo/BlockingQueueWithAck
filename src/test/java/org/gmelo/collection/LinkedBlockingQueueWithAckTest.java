@@ -99,7 +99,7 @@ public class LinkedBlockingQueueWithAckTest {
         queue.add("Something");
 
         String s = queue.take();
-
+        Thread.sleep(55);
         queue.acknowledge(s, LinkedBlockingQueueWithAck.Acknowledgement.NACK);
 
         Assert.assertEquals(1, queue.size());
@@ -120,6 +120,7 @@ public class LinkedBlockingQueueWithAckTest {
 
         String message = "Message";
         queue.add(message);
+        queue.take();
         queue.take();
         queue.take();
         queue.take();

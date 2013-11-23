@@ -40,7 +40,7 @@ public class LinkedBlockingQueueWithAck<T> implements BlockingQueueWithAck<T> {
     //Stores elements waiting for acknowledgement
     private final DelayQueue<ExpiryWrapper<T>> waitingForAck = new DelayQueue<ExpiryWrapper<T>>();
     // Timeout before re-queueing objects
-    private final long waitBeforeAck;
+    private final long timeout;
     //ExecutorService that re-queues expired elements
     private final ExecutorService executorService = Executors.newSingleThreadExecutor();
     //Map storing the number of times a object was re-queued
@@ -52,15 +52,15 @@ public class LinkedBlockingQueueWithAck<T> implements BlockingQueueWithAck<T> {
 
     /**
      * Creates a new LinkedBlockingQueueWithAck with a timeout before unacknowledged objects
-     * of waitBeforeAck and a capacity of queueSize
+     * of timeout and a capacity of queueSize
      *
-     * @param waitBeforeAck   the timeout before elements are re-queued in milliseconds
+     * @param timeout         the timeout before elements are re-queued in milliseconds
      * @param queueSize       the maximum capacity of the queue
      * @param maximumRetries  the maximum number of times a element can be requeued before giving up
      * @param deadLetterQueue queue to push the poisoned elements to
      */
-    public LinkedBlockingQueueWithAck(long waitBeforeAck, int queueSize, int maximumRetries, Queue<T> deadLetterQueue) {
-        this.waitBeforeAck = waitBeforeAck;
+    public LinkedBlockingQueueWithAck(long timeout, int queueSize, int maximumRetries, Queue<T> deadLetterQueue) {
+        this.timeout = timeout;
         internalQueue = new LinkedBlockingQueue<T>(queueSize);
         requeueLimit = maximumRetries;
         if (deadLetterQueue != null) {
@@ -75,32 +75,32 @@ public class LinkedBlockingQueueWithAck<T> implements BlockingQueueWithAck<T> {
 
     /**
      * Creates a new LinkedBlockingQueueWithAck with a timeout before unacknowledged objects
-     * of waitBeforeAck and a capacity of Integer.MAX_VALUE
+     * of timeout and a capacity of Integer.MAX_VALUE
      *
-     * @param waitBeforeAck the timeout before elements are re-queued in milliseconds
+     * @param timeout the timeout before elements are re-queued in milliseconds
      */
-    public LinkedBlockingQueueWithAck(long waitBeforeAck) {
-        this(waitBeforeAck, Integer.MAX_VALUE, Integer.MAX_VALUE, new LinkedBlockingQueue<T>());
+    public LinkedBlockingQueueWithAck(long timeout) {
+        this(timeout, Integer.MAX_VALUE, Integer.MAX_VALUE, new LinkedBlockingQueue<T>());
     }
 
     /**
      * Creates a new LinkedBlockingQueueWithAck with a timeout before unacknowledged objects
-     * of waitBeforeAck and a capacity of Integer.MAX_VALUE
+     * of timeout and a capacity of Integer.MAX_VALUE
      *
-     * @param waitBeforeAck the timeout before elements are re-queued in milliseconds
+     * @param timeout the timeout before elements are re-queued in milliseconds
      */
-    public LinkedBlockingQueueWithAck(long waitBeforeAck, int maximumRequeue) {
-        this(waitBeforeAck, Integer.MAX_VALUE, maximumRequeue, new LinkedBlockingQueue<T>());
+    public LinkedBlockingQueueWithAck(long timeout, int maximumRequeue) {
+        this(timeout, Integer.MAX_VALUE, maximumRequeue, new LinkedBlockingQueue<T>());
     }
 
     /**
      * Creates a new LinkedBlockingQueueWithAck with a timeout before unacknowledged objects
-     * of waitBeforeAck, with the provided dead letter queue and a capacity of Integer.MAX_VALUE
+     * of timeout, with the provided dead letter queue and a capacity of Integer.MAX_VALUE
      *
-     * @param waitBeforeAck the timeout before elements are re-queued in milliseconds
+     * @param timeout the timeout before elements are re-queued in milliseconds
      */
-    public LinkedBlockingQueueWithAck(long waitBeforeAck, int maximumRequeue,BlockingQueue<T> deadLetterQ) {
-        this(waitBeforeAck, Integer.MAX_VALUE, maximumRequeue, deadLetterQ);
+    public LinkedBlockingQueueWithAck(long timeout, int maximumRequeue, BlockingQueue<T> deadLetterQ) {
+        this(timeout, Integer.MAX_VALUE, maximumRequeue, deadLetterQ);
     }
 
     /**
@@ -114,7 +114,7 @@ public class LinkedBlockingQueueWithAck<T> implements BlockingQueueWithAck<T> {
      * Adds element to dead letter queue and cleans up the countOfElements map.
      */
     private void addElementToDeadLetterQueue(T element) {
-        logger.debug("adding element {} to dead letter queue");
+        logger.debug("adding element {} to dead letter queue", element);
         deadLetterQueue.add(element);
         countOfElements.remove(element);
     }
@@ -124,17 +124,22 @@ public class LinkedBlockingQueueWithAck<T> implements BlockingQueueWithAck<T> {
      */
     @Override
     public synchronized void acknowledge(T element, Acknowledgement acknowledgement) {
-        logger.debug("removing object {}", element);
 
-        waitingForAck.remove(new ExpiryWrapper<T>(element, waitBeforeAck));
+        if (!waitingForAck.remove(new ExpiryWrapper<T>(element, timeout))) {
+            logger.warn("Attempting to acknowledge element {} that was already re-queued, timeout should be increased. ", element);
+            return;
+        }
 
         if (acknowledgement == Acknowledgement.NACK) {
 
             if (checkForValidElement(element)) {
+                logger.debug("Re-queuing element {} due to negative acknowledgement", element);
                 internalQueue.add(element);
             } else {
                 addElementToDeadLetterQueue(element);
             }
+        } else {
+            logger.debug("Successfully acknowledged element {}", element);
         }
     }
 
@@ -392,7 +397,7 @@ public class LinkedBlockingQueueWithAck<T> implements BlockingQueueWithAck<T> {
      * @return the element
      */
     private T waitForAck(T element) {
-        waitingForAck.add(new ExpiryWrapper<T>(element, waitBeforeAck));
+        waitingForAck.add(new ExpiryWrapper<T>(element, timeout));
         return element;
 
     }
@@ -400,7 +405,7 @@ public class LinkedBlockingQueueWithAck<T> implements BlockingQueueWithAck<T> {
     private boolean checkForValidElement(T element) {
         Integer count = countOfElements.get(element);
         if (count == null) {
-            countOfElements.put(element, 2);
+            countOfElements.put(element, 1);
             return true;
         }
         if (count >= requeueLimit) {
@@ -512,12 +517,12 @@ public class LinkedBlockingQueueWithAck<T> implements BlockingQueueWithAck<T> {
                     ExpiryWrapper<T> wrappedElement = waitingForAck.take();
                     T element = wrappedElement.getEntity();
                     if (checkForValidElement(element)) {
+                        logger.debug("re-queuing object {} due to timeout", wrappedElement);
                         internalQueue.add(element);
                     } else {
                         addElementToDeadLetterQueue(element);
                     }
 
-                    logger.debug("re-queuing object {}", wrappedElement);
 
                 } catch (InterruptedException e) {
                     logger.error("Internal Listener interrupted", e);
