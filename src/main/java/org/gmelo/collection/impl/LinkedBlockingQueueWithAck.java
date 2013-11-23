@@ -43,7 +43,7 @@ public class LinkedBlockingQueueWithAck<T> implements BlockingQueueWithAck<T> {
     // Timeout before re-queueing objects
     private final long timeout;
     //ExecutorService that re-queues expired elements
-    private final ExecutorService executorService = Executors.newSingleThreadExecutor();
+    private final ExecutorService executorService;
     //Map storing the number of times a object was re-queued
     private final Map<T, Integer> countOfElements = new HashMap<T, Integer>();
     //queue that stores objects that were re-queued more than the limit
@@ -71,7 +71,15 @@ public class LinkedBlockingQueueWithAck<T> implements BlockingQueueWithAck<T> {
             logger.warn("Poison element queue should not be null");
             this.deadLetterQueue = new LinkedBlockingQueue<T>();
         }
+
+        executorService = Executors.newSingleThreadExecutor(new ThreadFactory() {
+            @Override
+            public Thread newThread(Runnable runnable) {
+                return new Thread(runnable, "LinkedBlockingQueue timeout-listener");
+            }
+        });
         startExpiryListener();
+
     }
 
     /**
@@ -518,7 +526,7 @@ public class LinkedBlockingQueueWithAck<T> implements BlockingQueueWithAck<T> {
                     ExpiryWrapper<T> wrappedElement = waitingForAck.take();
                     T element = wrappedElement.getEntity();
                     if (checkForValidElement(element)) {
-                        logger.debug("re-queuing object {} due to timeout", wrappedElement);
+                        logger.debug("re-queuing object {} due to timeout", element);
                         internalQueue.add(element);
                     } else {
                         addElementToDeadLetterQueue(element);
