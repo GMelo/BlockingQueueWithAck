@@ -1,6 +1,7 @@
 package org.gmelo.collection;
 
 import junit.framework.Assert;
+import org.gmelo.collection.impl.LinkedBlockingQueueWithAck;
 import org.gmelo.collection.util.Consumers;
 import org.gmelo.collection.util.ContinuousConsumerCallable;
 import org.gmelo.collection.util.Producer;

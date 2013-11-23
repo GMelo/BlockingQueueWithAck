@@ -1,6 +1,6 @@
 package org.gmelo.collection.util;
 
-import org.gmelo.collection.LinkedBlockingQueueWithAck;
+import org.gmelo.collection.impl.LinkedBlockingQueueWithAck;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

@@ -1,6 +1,6 @@
 package org.gmelo.collection.util;
 
-import org.gmelo.collection.LinkedBlockingQueueWithAck;
+import org.gmelo.collection.impl.LinkedBlockingQueueWithAck;
 
 /**
  * User: GMelo
